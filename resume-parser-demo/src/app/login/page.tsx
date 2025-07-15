@@ -20,6 +20,9 @@ export default function Login() {
       const data = await res.json();
       if (data.token) {
         localStorage.setItem('token', data.token);
+        if (data.role) {
+          localStorage.setItem('role', data.role);
+        }
         setMessage('Login successful!');
         // Optionally redirect or update UI
       } else {

@@ -15,6 +15,7 @@ const User = require('./user.model');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
+const Job = require('./job.model');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -97,6 +98,55 @@ app.post('/login', async (req, res) => {
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Login failed.' });
+  }
+});
+
+// Middleware to verify JWT and extract user info
+function authenticateJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+  const token = authHeader.split(' ')[1];
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid token' });
+    req.user = user;
+    next();
+  });
+}
+
+// POST /jobs - recruiter uploads a job description
+app.post('/jobs', authenticateJWT, async (req, res) => {
+  try {
+    const { title, description } = req.body;
+    if (!title || !description) {
+      return res.status(400).json({ error: 'Title and description are required.' });
+    }
+    if (req.user.role !== 'recruiter' && req.user.role !== 'job_poster') {
+      return res.status(403).json({ error: 'Only recruiters can post jobs.' });
+    }
+    const job = new Job({
+      title,
+      description,
+      createdBy: req.user.userId,
+    });
+    await job.save();
+    res.status(201).json(job);
+  } catch (err) {
+    console.error('Job upload error:', err);
+    res.status(500).json({ error: 'Failed to upload job.' });
+  }
+});
+
+// GET /jobs - recruiter fetches their own jobs
+app.get('/jobs', authenticateJWT, async (req, res) => {
+  try {
+    if (req.user.role !== 'recruiter' && req.user.role !== 'job_poster') {
+      return res.status(403).json({ error: 'Only recruiters can view their jobs.' });
+    }
+    const jobs = await Job.find({ createdBy: req.user.userId }).sort({ createdAt: -1 });
+    res.json(jobs);
+  } catch (err) {
+    console.error('Get jobs error:', err);
+    res.status(500).json({ error: 'Failed to fetch jobs.' });
   }
 });
 
