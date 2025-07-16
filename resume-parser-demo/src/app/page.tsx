@@ -362,18 +362,18 @@ export default function Home() {
         margin: "1rem 0"
       }}>
         Choose PDF File
-        <input
+      <input
           id="file-upload"
-          type="file"
-          accept="application/pdf"
-          onChange={handleFileChange}
-          disabled={uploading}
+        type="file"
+        accept="application/pdf"
+        onChange={handleFileChange}
+        disabled={uploading}
           style={{ display: "none" }}
-        />
+            />
       </label>
       {uploading && <p>Uploading...</p>}
       {message && <p>{message}</p>}
       {parsedResume && <ResumeViewer resume={parsedResume} />}
-    </main>
+      </main>
   );
 }
