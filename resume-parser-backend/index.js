@@ -8,7 +8,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const User = require('./user.model');
 const jwt = require('jsonwebtoken');
-// Removed unused imports for POC simplicity
+
 const Job = require('./job.model');
 const embeddingService = require('./embedding-service');
 
