@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import "../../styles/globals.css";
 
 export default function Register() {
   const [email, setEmail] = useState("");
@@ -72,170 +73,129 @@ export default function Register() {
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      background: "#111",
-      padding: "1rem"
+      padding: "20px"
     }}>
-      <div style={{
-        width: 420,
-        background: "#181818",
-        borderRadius: 14,
-        boxShadow: "0 4px 32px #0006",
-        padding: "2.5rem 2rem",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        border: "1.5px solid #232323"
+      <div className="card fade-in" style={{
+        width: "100%",
+        maxWidth: 450,
+        textAlign: "center"
       }}>
-        <h2 style={{
-          marginBottom: 28,
-          fontWeight: 700,
-          fontSize: 28,
-          color: "#fff",
-          textAlign: "center"
-        }}>Create Account</h2>
+        {/* Logo and Title */}
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🎯</div>
+          <h1 style={{ 
+            fontSize: 28, 
+            fontWeight: 700, 
+            marginBottom: 8,
+            background: 'linear-gradient(135deg, #0070f3 0%, #00d4ff 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent'
+          }}>
+            Create Account
+          </h1>
+          <p style={{ 
+            color: 'rgba(255, 255, 255, 0.6)', 
+            fontSize: 16,
+            margin: 0 
+          }}>
+            Join Resume Parser AI Platform
+          </p>
+        </div>
         
         <form onSubmit={handleRegister} style={{ 
-          width: "100%", 
           display: "flex", 
           flexDirection: "column", 
-          gap: 18 
+          gap: 20 
         }}>
-          <input
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="Full Name"
-            type="text"
-            style={{
-              width: "100%",
-              padding: "12px 14px",
-              borderRadius: 7,
-              border: "1.5px solid #333",
-              background: "#222",
-              color: "#fff",
-              fontSize: 16,
-              outline: "none",
-              transition: "border 0.2s"
-            }}
-            required
-            disabled={loading}
-          />
+          <div>
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Full Name"
+              type="text"
+              className="input-field"
+              required
+              disabled={loading}
+            />
+          </div>
           
-          <input
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="Email Address"
-            type="email"
-            style={{
-              width: "100%",
-              padding: "12px 14px",
-              borderRadius: 7,
-              border: "1.5px solid #333",
-              background: "#222",
-              color: "#fff",
-              fontSize: 16,
-              outline: "none",
-              transition: "border 0.2s"
-            }}
-            required
-            disabled={loading}
-          />
+          <div>
+            <input
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="Email Address"
+              type="email"
+              className="input-field"
+              required
+              disabled={loading}
+            />
+          </div>
           
-          <select
-            value={role}
-            onChange={e => setRole(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "12px 14px",
-              borderRadius: 7,
-              border: "1.5px solid #333",
-              background: "#222",
-              color: "#fff",
-              fontSize: 16,
-              outline: "none",
-              transition: "border 0.2s"
-            }}
-            required
-            disabled={loading}
-          >
-            <option value="">Select Your Role</option>
-            {roles.map(roleOption => (
-              <option key={roleOption.value} value={roleOption.value}>
-                {roleOption.label}
-              </option>
-            ))}
-          </select>
+          <div>
+            <select
+              value={role}
+              onChange={e => setRole(e.target.value)}
+              className="input-field"
+              required
+              disabled={loading}
+            >
+              <option value="">Select Your Role</option>
+              {roles.map(roleOption => (
+                <option key={roleOption.value} value={roleOption.value}>
+                  {roleOption.label}
+                </option>
+              ))}
+            </select>
+          </div>
           
-          <input
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            type="password"
-            placeholder="Password (min 6 characters)"
-            style={{
-              width: "100%",
-              padding: "12px 14px",
-              borderRadius: 7,
-              border: "1.5px solid #333",
-              background: "#222",
-              color: "#fff",
-              fontSize: 16,
-              outline: "none",
-              transition: "border 0.2s"
-            }}
-            required
-            disabled={loading}
-          />
+          <div>
+            <input
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              type="password"
+              placeholder="Password (min 6 characters)"
+              className="input-field"
+              required
+              disabled={loading}
+            />
+          </div>
           
-          <input
-            value={confirmPassword}
-            onChange={e => setConfirmPassword(e.target.value)}
-            type="password"
-            placeholder="Confirm Password"
-            style={{
-              width: "100%",
-              padding: "12px 14px",
-              borderRadius: 7,
-              border: "1.5px solid #333",
-              background: "#222",
-              color: "#fff",
-              fontSize: 16,
-              outline: "none",
-              transition: "border 0.2s"
-            }}
-            required
-            disabled={loading}
-          />
+          <div>
+            <input
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              type="password"
+              placeholder="Confirm Password"
+              className="input-field"
+              required
+              disabled={loading}
+            />
+          </div>
           
           <button
             type="submit"
-            style={{
-              width: "100%",
-              padding: "12px 0",
-              background: loading ? "#444" : "#0070f3",
-              color: "#fff",
-              border: "none",
-              borderRadius: 7,
-              fontWeight: 700,
-              fontSize: 17,
-              cursor: loading ? "not-allowed" : "pointer",
-              marginTop: 8,
-              boxShadow: "0 2px 8px #0002",
-              transition: "background 0.2s"
-            }}
+            className="btn-primary"
             disabled={loading}
+            style={{ 
+              fontSize: 16,
+              padding: '14px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              marginTop: 8
+            }}
           >
-            {loading ? "Creating Account..." : "Create Account"}
+            {loading && <div className="loading-spinner"></div>}
+            {loading ? "Creating Account..." : "🚀 Create Account"}
           </button>
         </form>
         
-        <div style={{ 
-          marginTop: 18, 
-          color: message.includes("successful") ? "#4caf50" : "#e57373", 
-          fontWeight: 500, 
-          minHeight: 24, 
-          textAlign: "center" 
-        }}>
-          {message}
-        </div>
+        {message && (
+          <div className={`fade-in ${message.includes("successful") ? "status-success" : "status-error"}`}>
+            {message}
+          </div>
+        )}
         
         <div style={{ 
           marginTop: 20, 

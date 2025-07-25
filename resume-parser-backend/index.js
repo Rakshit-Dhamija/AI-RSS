@@ -1,23 +1,19 @@
 require('dotenv').config();
-const { MongoClient } = require('mongodb');
-const MONGO_URI = process.env.MONGODB_URI; // Change if using Atlas or remote
-const DB_NAME = 'resumeParserDB';
-
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const fs = require('fs');
-const path = require('path');
 const { parseResumeFromPdf } = require('./parser');
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const User = require('./user.model');
-const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
+// Removed unused imports for POC simplicity
 const Job = require('./job.model');
-const { cosineSimilarity } = require('./cosine');
 const embeddingService = require('./embedding-service');
+
+// Add JWT_SECRET definition at the top
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
 // Import Google Generative AI for job enhancement
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -28,7 +24,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
  */
 function calculateFieldQuality(fieldValue, fieldType) {
   if (!fieldValue) return 0;
-  
+
   let text = '';
   if (typeof fieldValue === 'string') {
     text = fieldValue.trim();
@@ -44,12 +40,12 @@ function calculateFieldQuality(fieldValue, fieldType) {
   } else {
     text = String(fieldValue).trim();
   }
-  
+
   if (!text || text.length === 0) return 0;
-  
+
   // Base score based on content length (more lenient)
   let score = Math.min(text.length / 50, 1.0); // Max score at 50+ characters (reduced from 100)
-  
+
   // Field-specific quality adjustments (more lenient)
   switch (fieldType) {
     case 'name':
@@ -59,7 +55,7 @@ function calculateFieldQuality(fieldValue, fieldType) {
       else if (text.length >= 1) score = 0.6; // More lenient for short names
       else score = 0.0;
       break;
-      
+
     case 'skills':
       // Skills should have multiple items (more lenient)
       const skillCount = text.split(/[,;|\n]/).filter(s => s.trim().length > 0).length;
@@ -68,7 +64,7 @@ function calculateFieldQuality(fieldValue, fieldType) {
       else if (skillCount >= 1) score = 0.5; // Give credit for having any skills
       else score = 0.0;
       break;
-      
+
     case 'experience':
       // Experience should be detailed (more lenient)
       const wordCount = text.split(/\s+/).length;
@@ -78,7 +74,7 @@ function calculateFieldQuality(fieldValue, fieldType) {
       else if (wordCount >= 1) score = 0.4; // Give credit for any experience
       else score = 0.0;
       break;
-      
+
     case 'summary':
       // Summary should be substantial but not too long
       const summaryWords = text.split(/\s+/).length;
@@ -87,22 +83,22 @@ function calculateFieldQuality(fieldValue, fieldType) {
       else if (summaryWords >= 5) score = 0.5;
       else score = 0.3;
       break;
-      
+
     case 'education':
       // Education should mention degree/institution
-      if (text.toLowerCase().includes('bachelor') || text.toLowerCase().includes('master') || 
-          text.toLowerCase().includes('degree') || text.toLowerCase().includes('university')) {
+      if (text.toLowerCase().includes('bachelor') || text.toLowerCase().includes('master') ||
+        text.toLowerCase().includes('degree') || text.toLowerCase().includes('university')) {
         score = Math.min(score * 1.2, 1.0);
       }
       break;
-      
+
     case 'projects':
       // Projects should be detailed
       const projectWords = text.split(/\s+/).length;
       score = Math.min(projectWords / 30, 1.0); // Max score at 30+ words
       break;
   }
-  
+
   return Math.max(0, Math.min(1, score));
 }
 
@@ -111,35 +107,35 @@ function calculateFieldQuality(fieldValue, fieldType) {
  */
 function calculateWorkExperienceQuality(workExperiences) {
   if (!Array.isArray(workExperiences) || workExperiences.length === 0) return 0;
-  
+
   let totalScore = 0;
   let validEntries = 0;
-  
+
   for (const work of workExperiences) {
     if (!work) continue;
-    
+
     let entryScore = 0;
-    
+
     // Check for company name
     if (work.company && work.company.trim()) entryScore += 0.3;
-    
+
     // Check for job title
     if (work.jobTitle && work.jobTitle.trim()) entryScore += 0.3;
-    
+
     // Check for dates
     if (work.date && work.date.trim()) entryScore += 0.2;
-    
+
     // Check for descriptions
     if (work.descriptions && Array.isArray(work.descriptions) && work.descriptions.length > 0) {
       const descText = work.descriptions.join(' ').trim();
       if (descText.length > 50) entryScore += 0.2;
       else if (descText.length > 0) entryScore += 0.1;
     }
-    
+
     totalScore += entryScore;
     validEntries++;
   }
-  
+
   return validEntries > 0 ? Math.min(totalScore / validEntries, 1.0) : 0;
 }
 
@@ -148,31 +144,31 @@ function calculateWorkExperienceQuality(workExperiences) {
  */
 function calculateEducationDetailQuality(educations) {
   if (!Array.isArray(educations) || educations.length === 0) return 0;
-  
+
   let totalScore = 0;
   let validEntries = 0;
-  
+
   for (const edu of educations) {
     if (!edu) continue;
-    
+
     let entryScore = 0;
-    
+
     // Check for school name
     if (edu.school && edu.school.trim()) entryScore += 0.4;
-    
+
     // Check for degree
     if (edu.degree && edu.degree.trim()) entryScore += 0.4;
-    
+
     // Check for GPA
     if (edu.gpa && edu.gpa.trim()) entryScore += 0.1;
-    
+
     // Check for date
     if (edu.date && edu.date.trim()) entryScore += 0.1;
-    
+
     totalScore += entryScore;
     validEntries++;
   }
-  
+
   return validEntries > 0 ? Math.min(totalScore / validEntries, 1.0) : 0;
 }
 
@@ -209,15 +205,23 @@ Enhanced Job Description:`;
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
-app.use(cors());
+
+// Enhanced CORS configuration for POC
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
-// Connect to MongoDB with mongoose with better error handling
+// Simple, working MongoDB connection (reverted from complex database manager)
 async function connectToMongoDB() {
   try {
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/resume_parser', {
-      serverSelectionTimeoutMS: 30000, // Increase timeout to 30 seconds
-      socketTimeoutMS: 45000, // Socket timeout
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
     });
     console.log('✅ Connected to MongoDB successfully');
     return true;
@@ -259,7 +263,7 @@ app.post('/upload', upload.single('resume'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
-  let client;
+
   try {
     // Use the advanced parsing logic
     const parsedResume = await parseResumeFromPdf(fs.readFileSync(req.file.path));
@@ -270,22 +274,22 @@ app.post('/upload', upload.single('resume'), async (req, res) => {
     const embedding = await embeddingService.generateResumeEmbedding(parsedResume);
     console.log('Embedding generated successfully');
 
-    // Connect to MongoDB Atlas and insert parsed data with embedding
-    client = new MongoClient(MONGO_URI);
+    // Use simple MongoDB connection (same as before)
+    const { MongoClient } = require('mongodb');
+    const client = new MongoClient(process.env.MONGODB_URI);
     await client.connect();
-    const db = client.db(DB_NAME);
+    const db = client.db('resumeParserDB');
     const result = await db.collection('resumes').insertOne({
       parsedResume: parsedResume,
       embedding: embedding,
       uploadedAt: new Date(),
     });
+    await client.close();
 
     res.json({ parsedResume: parsedResume, mongoId: result.insertedId });
   } catch (err) {
     console.error('Error parsing resume or generating embedding:', err);
     res.status(500).json({ error: 'Failed to parse or store PDF', details: err.stack || err.message });
-  } finally {
-    if (client) await client.close();
   }
 });
 
@@ -313,13 +317,30 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// Middleware to verify JWT and extract user info
+// Middleware to verify JWT and extract user info with better debugging
 function authenticateJWT(req, res, next) {
+  console.log('🔐 JWT Auth - Headers:', req.headers.authorization ? 'Present' : 'Missing');
+
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+  if (!authHeader) {
+    console.log('❌ JWT Auth - No authorization header');
+    return res.status(401).json({ error: 'No token provided' });
+  }
+
   const token = authHeader.split(' ')[1];
+  if (!token) {
+    console.log('❌ JWT Auth - No token in header');
+    return res.status(401).json({ error: 'No token provided' });
+  }
+
+  console.log('🔍 JWT Auth - Token present, verifying...');
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid token' });
+    if (err) {
+      console.log('❌ JWT Auth - Token verification failed:', err.message);
+      return res.status(403).json({ error: 'Invalid token', details: err.message });
+    }
+
+    console.log('✅ JWT Auth - Token valid for user:', user.userId, 'role:', user.role);
     req.user = user;
     next();
   });
@@ -377,7 +398,6 @@ app.get('/jobs', authenticateJWT, async (req, res) => {
 
 // GET /jobs/:jobId/match - return top 5 matching resumes for a job
 app.get('/jobs/:jobId/match', async (req, res) => {
-  let client;
   try {
     const jobId = req.params.jobId;
 
@@ -387,15 +407,18 @@ app.get('/jobs/:jobId/match', async (req, res) => {
       return res.status(404).json({ error: 'Job or job embedding not found.' });
     }
 
-    // Connect to MongoDB to get resumes
-    client = new MongoClient(MONGO_URI);
+    // Use simple MongoDB connection (same as before)
+    const { MongoClient } = require('mongodb');
+    const client = new MongoClient(process.env.MONGODB_URI);
     await client.connect();
-    const db = client.db(DB_NAME);
+    const db = client.db('resumeParserDB');
     const resumes = await db.collection('resumes').find({ embedding: { $exists: true } }).toArray();
+    await client.close();
     if (!resumes.length) {
       return res.status(404).json({ error: 'No resumes with embeddings found.' });
     }
-    // Extract job skills from multiple sources
+
+    // Extract job skills from multiple sources (RESTORED ORIGINAL SUPERIOR LOGIC)
     let jobSkills = [];
 
     // Try to extract from enhanced description first
@@ -421,10 +444,23 @@ app.get('/jobs/:jobId/match', async (req, res) => {
       }
     }
 
-    // Fallback to original description if no skills found
+    // Fallback to universal skills if no skills found (ENHANCED FOR ALL INDUSTRIES)
     if (jobSkills.length === 0 && job.description) {
-      const commonTechSkills = ['javascript', 'python', 'java', 'react', 'node', 'sql', 'aws', 'docker', 'git'];
-      jobSkills = commonTechSkills.filter(skill =>
+      const universalSkills = [
+        // Tech Skills
+        'javascript', 'python', 'java', 'react', 'node', 'sql', 'html', 'css', 'aws', 'docker', 'git',
+        // Business Skills  
+        'management', 'leadership', 'communication', 'teamwork', 'project management', 'analysis',
+        // Healthcare Skills
+        'nursing', 'patient care', 'medical', 'healthcare', 'clinical', 'emergency', 'treatment',
+        // Finance Skills
+        'accounting', 'finance', 'investment', 'banking', 'audit', 'excel', 'financial analysis',
+        // Education Skills
+        'teaching', 'curriculum', 'education', 'training', 'classroom management', 'assessment',
+        // Marketing Skills
+        'marketing', 'seo', 'social media', 'branding', 'analytics', 'campaign management'
+      ];
+      jobSkills = universalSkills.filter(skill =>
         job.description.toLowerCase().includes(skill)
       );
     }
@@ -439,29 +475,20 @@ app.get('/jobs/:jobId/match', async (req, res) => {
       const parsed = r.parsedResume || {};
       // Try multiple name field possibilities
       const possibleName = parsed.name || parsed.profile?.name || parsed.personalInfo?.name || parsed.header?.name;
-      const hasName = !!(possibleName && possibleName.trim());
-      const hasSkills = !!(parsed.skills && (
-        typeof parsed.skills === 'string' ? parsed.skills.trim() :
-          Array.isArray(parsed.skills) ? parsed.skills.length > 0 :
-            parsed.skills.featuredSkills?.length > 0 || parsed.skills.descriptions?.length > 0
-      ));
-      const hasExperience = !!(parsed.experience && parsed.experience.trim());
-      const hasSummary = !!(parsed.summary && parsed.summary.trim());
-      const hasEducation = !!(parsed.education && parsed.education.trim());
 
-      // Enhanced content quality scoring (0-1)
+      // Enhanced content quality scoring (0-1) - RESTORED ORIGINAL SUPERIOR LOGIC
       const nameScore = calculateFieldQuality(possibleName, 'name');
       const skillsScore = calculateFieldQuality(parsed.skills, 'skills');
       const experienceScore = calculateFieldQuality(parsed.experience, 'experience');
       const summaryScore = calculateFieldQuality(parsed.summary, 'summary');
       const educationScore = calculateFieldQuality(parsed.education, 'education');
-      
-      // Additional quality factors
+
+      // Additional quality factors - RESTORED ORIGINAL
       const workExperienceScore = calculateWorkExperienceQuality(parsed.workExperiences);
       const educationDetailScore = calculateEducationDetailQuality(parsed.educations);
       const projectsScore = calculateFieldQuality(parsed.projects, 'projects');
 
-      // Weighted content score (different fields have different importance)
+      // Weighted content score (different fields have different importance) - RESTORED ORIGINAL
       const contentScore = (
         nameScore * 0.1 +           // 10% - Basic info
         skillsScore * 0.3 +         // 30% - Very important
@@ -479,7 +506,7 @@ app.get('/jobs/:jobId/match', async (req, res) => {
         return null;
       }
 
-      // Calculate embedding similarity
+      // Calculate embedding similarity - RESTORED ORIGINAL
       let embeddingScore = 0;
       if (r.embedding && job.embedding && r.embedding.length === job.embedding.length) {
         try {
@@ -490,6 +517,7 @@ app.get('/jobs/:jobId/match', async (req, res) => {
             return null;
           }
 
+          const { cosineSimilarity } = require('./cosine');
           embeddingScore = cosineSimilarity(job.embedding, r.embedding);
         } catch (error) {
           console.warn('Cosine similarity calculation failed:', error.message);
@@ -497,7 +525,7 @@ app.get('/jobs/:jobId/match', async (req, res) => {
         }
       }
 
-      // Extract resume skills from multiple possible fields
+      // Extract resume skills from multiple possible fields - RESTORED ORIGINAL COMPLEX LOGIC
       let resumeSkills = [];
       const skillSources = [
         r.parsedResume?.skills,
@@ -544,7 +572,7 @@ app.get('/jobs/:jobId/match', async (req, res) => {
       // Remove duplicates and clean up
       resumeSkills = [...new Set(resumeSkills)].filter(Boolean);
 
-      // Calculate skill overlap with fuzzy matching
+      // Calculate skill overlap with fuzzy matching - RESTORED ORIGINAL SOPHISTICATED LOGIC
       let skillOverlap = 0;
       let matchingSkills = [];
 
@@ -581,25 +609,11 @@ app.get('/jobs/:jobId/match', async (req, res) => {
         }
       }
 
-      // Calculate composite score with content quality weighting
+      // Calculate composite score with content quality weighting - RESTORED ORIGINAL
       const normalizedSkillScore = jobSkills.length > 0 ? skillOverlap / jobSkills.length : 0;
 
       // Weight the final score by content completeness and embedding quality
       const baseScore = (embeddingScore * 0.6) + (normalizedSkillScore * 0.3) + (contentScore * 0.1);
-
-      // Debug logging for scoring
-      const displayName = possibleName || 'Unnamed';
-      console.log(`--- Scoring Debug for ${displayName} ---`);
-      console.log('Raw parsed resume keys:', Object.keys(parsed));
-      console.log('Resume skills raw:', parsed.skills);
-      console.log('Resume skills processed:', resumeSkills);
-      console.log('Job skills:', jobSkills);
-      console.log('Embedding score:', embeddingScore.toFixed(4));
-      console.log('Skill overlap:', skillOverlap);
-      console.log('Normalized skill score:', normalizedSkillScore.toFixed(4));
-      console.log('Content score:', contentScore.toFixed(4));
-      console.log('Final base score:', baseScore.toFixed(4));
-      console.log('');
 
       // Apply minimum thresholds (more lenient)
       if (baseScore < 0.05 || contentScore < 0.1) {
@@ -625,13 +639,12 @@ app.get('/jobs/:jobId/match', async (req, res) => {
         explanation: explanation.slice(0, 3)
       };
     }).filter(Boolean); // Remove null entries
+
     matches.sort((a, b) => b.score - a.score || b.skillOverlap - a.skillOverlap);
     res.json(matches.slice(0, 5));
   } catch (err) {
     console.error('Error in /jobs/:jobId/match:', err);
     res.status(500).json({ error: 'Failed to match resumes.' });
-  } finally {
-    if (client) await client.close();
   }
 });
 

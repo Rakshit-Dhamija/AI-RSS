@@ -1,15 +1,22 @@
 const { spawn } = require('child_process');
 const path = require('path');
-const textPreprocessor = require('./text-preprocessor');
 
 /**
- * Service to generate embeddings using Python SentenceTransformers
+ * Simple Embedding Service for POC
  */
 class EmbeddingService {
   constructor() {
-    // Use Python from the venv directory
-    this.pythonPath = path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe'); // Windows
-    // For Linux/Mac, it would be: path.join(__dirname, '..', 'venv', 'bin', 'python')
+    this.pythonPath = process.env.PYTHON_PATH || 'python';
+    this.timeout = 30000;
+    this.embeddingCache = new Map();
+  }
+
+  /**
+   * Generate cache key for text
+   */
+  getCacheKey(text) {
+    const crypto = require('crypto');
+    return crypto.createHash('md5').update(text).digest('hex');
   }
 
   /**
@@ -18,9 +25,22 @@ class EmbeddingService {
    * @returns {Promise<number[]>} - Array of embedding values
    */
   async generateEmbedding(text) {
+    if (!text || text.trim().length === 0) {
+      throw new Error('Text cannot be empty');
+    }
+
+    // Check cache first
+    const cacheKey = this.getCacheKey(text);
+    if (this.embeddingCache.has(cacheKey)) {
+      console.log('✅ Cache hit for embedding');
+      return this.embeddingCache.get(cacheKey);
+    }
+
     return new Promise((resolve, reject) => {
       const pythonScript = path.join(__dirname, 'generate_embedding.py');
-      const python = spawn(this.pythonPath, [pythonScript]);
+      const python = spawn(this.pythonPath, [pythonScript], {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
       
       let output = '';
       let error = '';
@@ -35,21 +55,40 @@ class EmbeddingService {
 
       python.on('close', (code) => {
         if (code !== 0) {
-          reject(new Error(`Python script failed: ${error}`));
+          reject(new Error(`Python script failed (code ${code}): ${error}`));
           return;
         }
         
         try {
           const embedding = JSON.parse(output.trim());
+          this.embeddingCache.set(cacheKey, embedding);
           resolve(embedding);
         } catch (parseError) {
           reject(new Error(`Failed to parse embedding: ${parseError.message}`));
         }
       });
 
+      python.on('error', (err) => {
+        reject(new Error(`Failed to spawn Python process: ${err.message}`));
+      });
+
+      // Handle timeout
+      const timeoutId = setTimeout(() => {
+        python.kill('SIGTERM');
+        reject(new Error('Embedding generation timed out'));
+      }, this.timeout);
+
+      python.on('close', () => {
+        clearTimeout(timeoutId);
+      });
+
       // Send text to Python script
-      python.stdin.write(text);
-      python.stdin.end();
+      try {
+        python.stdin.write(text);
+        python.stdin.end();
+      } catch (writeError) {
+        reject(new Error(`Failed to write to Python process: ${writeError.message}`));
+      }
     });
   }
 
@@ -59,45 +98,16 @@ class EmbeddingService {
    * @returns {Promise<number[]>} - Array of embedding values
    */
   async generateResumeEmbedding(resumeData) {
-    console.log('Original resume data:', JSON.stringify(resumeData, null, 2));
-    
-    // Try preprocessing first
-    let processedResume;
-    try {
-      processedResume = textPreprocessor.preprocessResume(resumeData);
-      console.log('Processed resume data:', JSON.stringify(processedResume, null, 2));
-    } catch (error) {
-      console.warn('Preprocessing failed, using original data:', error.message);
-      processedResume = resumeData;
-    }
-    
-    // Combine relevant resume fields into a single text
     const textParts = [];
     
-    if (processedResume.name) textParts.push(`Name: ${processedResume.name}`);
-    if (processedResume.summary) textParts.push(`Summary: ${processedResume.summary}`);
-    if (processedResume.skills) textParts.push(`Skills: ${processedResume.skills}`);
-    if (processedResume.experience) textParts.push(`Experience: ${processedResume.experience}`);
-    if (processedResume.education) textParts.push(`Education: ${processedResume.education}`);
-    if (processedResume.projects) textParts.push(`Projects: ${processedResume.projects}`);
+    if (resumeData.name) textParts.push(`Name: ${resumeData.name}`);
+    if (resumeData.summary) textParts.push(`Summary: ${resumeData.summary}`);
+    if (resumeData.skills) textParts.push(`Skills: ${resumeData.skills}`);
+    if (resumeData.experience) textParts.push(`Experience: ${resumeData.experience}`);
+    if (resumeData.education) textParts.push(`Education: ${resumeData.education}`);
+    if (resumeData.projects) textParts.push(`Projects: ${resumeData.projects}`);
     
-    let combinedText = textParts.join('\n');
-    console.log('Combined text length:', combinedText.length);
-    console.log('Combined text preview:', combinedText.substring(0, 300));
-    
-    // Fallback to original data if processed text is empty
-    if (!combinedText || combinedText.trim().length === 0) {
-      console.warn('Processed text is empty, falling back to original data');
-      const fallbackParts = [];
-      if (resumeData.name) fallbackParts.push(`Name: ${resumeData.name}`);
-      if (resumeData.summary) fallbackParts.push(`Summary: ${resumeData.summary}`);
-      if (resumeData.skills) fallbackParts.push(`Skills: ${resumeData.skills}`);
-      if (resumeData.experience) fallbackParts.push(`Experience: ${resumeData.experience}`);
-      if (resumeData.education) fallbackParts.push(`Education: ${resumeData.education}`);
-      if (resumeData.projects) fallbackParts.push(`Projects: ${resumeData.projects}`);
-      
-      combinedText = fallbackParts.join('\n');
-    }
+    const combinedText = textParts.join('\n');
     
     if (!combinedText || combinedText.trim().length === 0) {
       throw new Error('No text content available for embedding generation');
@@ -113,31 +123,12 @@ class EmbeddingService {
    * @returns {Promise<number[]>} - Array of embedding values
    */
   async generateJobEmbedding(title, description) {
-    console.log('Original job data:', { title, description });
-    
-    // Try preprocessing first
-    let processedJob;
-    try {
-      processedJob = textPreprocessor.preprocessJob(title, description);
-      console.log('Processed job data:', processedJob);
-    } catch (error) {
-      console.warn('Job preprocessing failed, using original data:', error.message);
-      processedJob = { title, description };
-    }
-    
-    let combinedText = `Title: ${processedJob.title}\nDescription: ${processedJob.description}`;
-    
-    // Fallback to original data if processed text is empty
-    if (!combinedText || combinedText.trim().length === 0) {
-      console.warn('Processed job text is empty, falling back to original data');
-      combinedText = `Title: ${title}\nDescription: ${description}`;
-    }
+    const combinedText = `Title: ${title}\nDescription: ${description}`;
     
     if (!combinedText || combinedText.trim().length === 0) {
       throw new Error('No job text content available for embedding generation');
     }
     
-    console.log('Final job text for embedding:', combinedText.substring(0, 200) + '...');
     return this.generateEmbedding(combinedText);
   }
 }
