@@ -141,6 +141,10 @@ export default function Home() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [jobLoading, setJobLoading] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
+  const [matches, setMatches] = useState<{ [jobId: string]: any[] }>({});
+  const [matchesLoading, setMatchesLoading] = useState<{ [jobId: string]: boolean }>({});
+  const [matchesError, setMatchesError] = useState<{ [jobId: string]: string | null }>({});
+  const [expandedResumes, setExpandedResumes] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
     // Check for token and role in localStorage on mount
@@ -246,6 +250,24 @@ export default function Home() {
     }
   };
 
+  const handleShowMatches = async (jobId: string) => {
+    setMatchesLoading(prev => ({ ...prev, [jobId]: true }));
+    setMatchesError(prev => ({ ...prev, [jobId]: null }));
+    try {
+      const res = await fetch(`http://localhost:4000/jobs/${jobId}/match`);
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to fetch matches');
+      }
+      const data = await res.json();
+      setMatches(prev => ({ ...prev, [jobId]: data }));
+    } catch (err: any) {
+      setMatchesError(prev => ({ ...prev, [jobId]: err.message || 'Error fetching matches' }));
+    } finally {
+      setMatchesLoading(prev => ({ ...prev, [jobId]: false }));
+    }
+  };
+
   if (!isAuthenticated) {
     return <LoginForm onLogin={(roleFromLogin) => {
       setIsAuthenticated(true);
@@ -316,6 +338,88 @@ export default function Home() {
                 <strong>{job.title}</strong>
                 <p style={{ margin: "8px 0 0 0", color: "#ccc" }}>{job.description}</p>
                 <span style={{ fontSize: 12, color: "#888" }}>{job.createdAt ? new Date(job.createdAt).toLocaleString() : ""}</span>
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    onClick={() => handleShowMatches(job._id)}
+                    style={{ padding: "6px 16px", background: "#0070f3", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}
+                    disabled={matchesLoading[job._id]}
+                  >
+                    {matchesLoading[job._id] ? "Loading..." : "Show Matches"}
+                  </button>
+                </div>
+                {matchesError[job._id] && <div style={{ color: "#e57373", marginTop: 8 }}>{matchesError[job._id]}</div>}
+                {matches[job._id] && (
+                  <div style={{ marginTop: 16 }}>
+                    <strong style={{ fontSize: 18, color: '#fff' }}>Top Matches:</strong>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 8 }}>
+                      {matches[job._id].length === 0 && <div style={{ color: "#aaa" }}>No matches found.</div>}
+                      {matches[job._id].map((match, i) => {
+                        const resume = match.resume?.parsedResume || {};
+                        const isTop = i === 0;
+                        const resumeKey = `${job._id}-${i}`;
+                        const expanded = expandedResumes[resumeKey] || false;
+                        
+                        const toggleExpanded = () => {
+                          setExpandedResumes(prev => ({
+                            ...prev,
+                            [resumeKey]: !prev[resumeKey]
+                          }));
+                        };
+                        
+                        return (
+                          <div key={i} style={{
+                            background: isTop ? "#1e2a3a" : "#181818",
+                            border: isTop ? "2px solid #0070f3" : "1px solid #333",
+                            borderRadius: 10,
+                            boxShadow: isTop ? "0 4px 16px #0070f344" : "0 2px 8px #0002",
+                            padding: 18,
+                            color: '#fff',
+                            position: 'relative',
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ fontWeight: 700, fontSize: 17 }}>
+                                {resume.name || <em>Unnamed Candidate</em>}
+                                {isTop && <span style={{ marginLeft: 8, color: '#0070f3', fontWeight: 600, fontSize: 14 }}>(Best Match)</span>}
+                              </div>
+                              <button
+                                style={{ background: '#0070f3', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
+                                onClick={() => alert('Shortlist feature coming soon!')}
+                              >
+                                Shortlist
+                              </button>
+                            </div>
+                            <div style={{ marginTop: 6, fontSize: 15 }}><strong>Score:</strong> {match.score.toFixed(3)}</div>
+                            <div style={{ marginTop: 6, fontSize: 15 }}>
+                              <strong>Skills:</strong> {
+                                resume.skills ? (
+                                  typeof resume.skills === 'string' ? resume.skills : 
+                                  resume.skills.featuredSkills ? 
+                                    resume.skills.featuredSkills.map((s: any) => s.skill || s).filter(Boolean).join(', ') :
+                                    resume.skills.descriptions ? 
+                                      resume.skills.descriptions.join(', ') :
+                                      JSON.stringify(resume.skills)
+                                ) : <em>—</em>
+                              }
+                            </div>
+                            <div style={{ marginTop: 6, fontSize: 15 }}><strong>Experience:</strong> {resume.experience || <em>—</em>}</div>
+                            {resume.email && <div style={{ marginTop: 6, fontSize: 15 }}><strong>Email:</strong> {resume.email}</div>}
+                            <button
+                              style={{ marginTop: 10, background: '#232323', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontWeight: 500, cursor: 'pointer', fontSize: 14 }}
+                              onClick={toggleExpanded}
+                            >
+                              {expanded ? 'Hide Full Resume' : 'View Full Resume'}
+                            </button>
+                            {expanded && (
+                              <pre style={{ marginTop: 10, background: '#10151a', color: '#fff', borderRadius: 6, padding: 12, fontSize: 13, overflowX: 'auto' }}>
+                                {JSON.stringify(match.resume, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

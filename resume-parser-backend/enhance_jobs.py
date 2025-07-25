@@ -18,7 +18,7 @@ jobs_collection = db["jobs"]
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
 def enhance_job_description(description):
-    model_gemini = genai.GenerativeModel('models/gemini-pro')
+    model_gemini = genai.GenerativeModel('models/gemini-2.5-flash')
     prompt = (
         "Rewrite the following job description to clearly list all key skills, requirements, and responsibilities. "
         "Make it concise and easy to match with candidate resumes:\n\n"
