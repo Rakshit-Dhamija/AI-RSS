@@ -24,12 +24,165 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 /**
+ * Calculate quality score for a specific field (0-1 scale)
+ */
+function calculateFieldQuality(fieldValue, fieldType) {
+  if (!fieldValue) return 0;
+  
+  let text = '';
+  if (typeof fieldValue === 'string') {
+    text = fieldValue.trim();
+  } else if (typeof fieldValue === 'object') {
+    // Handle complex objects like skills
+    if (fieldValue.featuredSkills && Array.isArray(fieldValue.featuredSkills)) {
+      text = fieldValue.featuredSkills.map(s => s.skill || '').join(' ');
+    }
+    if (fieldValue.descriptions && Array.isArray(fieldValue.descriptions)) {
+      text += ' ' + fieldValue.descriptions.join(' ');
+    }
+    text = text.trim();
+  } else {
+    text = String(fieldValue).trim();
+  }
+  
+  if (!text || text.length === 0) return 0;
+  
+  // Base score based on content length (more lenient)
+  let score = Math.min(text.length / 50, 1.0); // Max score at 50+ characters (reduced from 100)
+  
+  // Field-specific quality adjustments (more lenient)
+  switch (fieldType) {
+    case 'name':
+      // Names should be 2-50 characters
+      if (text.length >= 2 && text.length <= 50) score = 1.0;
+      else if (text.length > 50) score = 0.8;
+      else if (text.length >= 1) score = 0.6; // More lenient for short names
+      else score = 0.0;
+      break;
+      
+    case 'skills':
+      // Skills should have multiple items (more lenient)
+      const skillCount = text.split(/[,;|\n]/).filter(s => s.trim().length > 0).length;
+      if (skillCount >= 3) score = 1.0;
+      else if (skillCount >= 2) score = 0.8;
+      else if (skillCount >= 1) score = 0.5; // Give credit for having any skills
+      else score = 0.0;
+      break;
+      
+    case 'experience':
+      // Experience should be detailed (more lenient)
+      const wordCount = text.split(/\s+/).length;
+      if (wordCount >= 20) score = 1.0;
+      else if (wordCount >= 10) score = 0.8;
+      else if (wordCount >= 5) score = 0.6;
+      else if (wordCount >= 1) score = 0.4; // Give credit for any experience
+      else score = 0.0;
+      break;
+      
+    case 'summary':
+      // Summary should be substantial but not too long
+      const summaryWords = text.split(/\s+/).length;
+      if (summaryWords >= 20 && summaryWords <= 100) score = 1.0;
+      else if (summaryWords >= 10) score = 0.8;
+      else if (summaryWords >= 5) score = 0.5;
+      else score = 0.3;
+      break;
+      
+    case 'education':
+      // Education should mention degree/institution
+      if (text.toLowerCase().includes('bachelor') || text.toLowerCase().includes('master') || 
+          text.toLowerCase().includes('degree') || text.toLowerCase().includes('university')) {
+        score = Math.min(score * 1.2, 1.0);
+      }
+      break;
+      
+    case 'projects':
+      // Projects should be detailed
+      const projectWords = text.split(/\s+/).length;
+      score = Math.min(projectWords / 30, 1.0); // Max score at 30+ words
+      break;
+  }
+  
+  return Math.max(0, Math.min(1, score));
+}
+
+/**
+ * Calculate quality score for work experience array
+ */
+function calculateWorkExperienceQuality(workExperiences) {
+  if (!Array.isArray(workExperiences) || workExperiences.length === 0) return 0;
+  
+  let totalScore = 0;
+  let validEntries = 0;
+  
+  for (const work of workExperiences) {
+    if (!work) continue;
+    
+    let entryScore = 0;
+    
+    // Check for company name
+    if (work.company && work.company.trim()) entryScore += 0.3;
+    
+    // Check for job title
+    if (work.jobTitle && work.jobTitle.trim()) entryScore += 0.3;
+    
+    // Check for dates
+    if (work.date && work.date.trim()) entryScore += 0.2;
+    
+    // Check for descriptions
+    if (work.descriptions && Array.isArray(work.descriptions) && work.descriptions.length > 0) {
+      const descText = work.descriptions.join(' ').trim();
+      if (descText.length > 50) entryScore += 0.2;
+      else if (descText.length > 0) entryScore += 0.1;
+    }
+    
+    totalScore += entryScore;
+    validEntries++;
+  }
+  
+  return validEntries > 0 ? Math.min(totalScore / validEntries, 1.0) : 0;
+}
+
+/**
+ * Calculate quality score for education array
+ */
+function calculateEducationDetailQuality(educations) {
+  if (!Array.isArray(educations) || educations.length === 0) return 0;
+  
+  let totalScore = 0;
+  let validEntries = 0;
+  
+  for (const edu of educations) {
+    if (!edu) continue;
+    
+    let entryScore = 0;
+    
+    // Check for school name
+    if (edu.school && edu.school.trim()) entryScore += 0.4;
+    
+    // Check for degree
+    if (edu.degree && edu.degree.trim()) entryScore += 0.4;
+    
+    // Check for GPA
+    if (edu.gpa && edu.gpa.trim()) entryScore += 0.1;
+    
+    // Check for date
+    if (edu.date && edu.date.trim()) entryScore += 0.1;
+    
+    totalScore += entryScore;
+    validEntries++;
+  }
+  
+  return validEntries > 0 ? Math.min(totalScore / validEntries, 1.0) : 0;
+}
+
+/**
  * Enhance job description using Gemini AI
  */
 async function enhanceJobDescription(title, description) {
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    
+
     const prompt = `
 Rewrite the following job description to clearly list all key skills, requirements, and responsibilities. 
 Make it concise, well-structured, and easy to match with candidate resumes. 
@@ -60,22 +213,23 @@ app.use(cors());
 app.use(express.json());
 
 // Connect to MongoDB with mongoose with better error handling
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/resume_parser', {
-  serverSelectionTimeoutMS: 30000, // Increase timeout to 30 seconds
-  socketTimeoutMS: 45000, // Socket timeout
-  bufferMaxEntries: 0, // Disable mongoose buffering
-  bufferCommands: false, // Disable mongoose buffering
-})
-.then(() => {
-  console.log('✅ Connected to MongoDB successfully');
-})
-.catch((error) => {
-  console.error('❌ MongoDB connection error:', error.message);
-  console.log('Please check:');
-  console.log('1. Your internet connection');
-  console.log('2. MongoDB Atlas IP whitelist settings');
-  console.log('3. Database credentials in .env file');
-});
+async function connectToMongoDB() {
+  try {
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/resume_parser', {
+      serverSelectionTimeoutMS: 30000, // Increase timeout to 30 seconds
+      socketTimeoutMS: 45000, // Socket timeout
+    });
+    console.log('✅ Connected to MongoDB successfully');
+    return true;
+  } catch (error) {
+    console.error('❌ MongoDB connection error:', error.message);
+    console.log('Please check:');
+    console.log('1. Your internet connection');
+    console.log('2. MongoDB Atlas IP whitelist settings');
+    console.log('3. Database credentials in .env file');
+    return false;
+  }
+}
 
 // Registration endpoint
 app.post('/register', async (req, res) => {
@@ -226,7 +380,7 @@ app.get('/jobs/:jobId/match', async (req, res) => {
   let client;
   try {
     const jobId = req.params.jobId;
-    
+
     // Find job using Mongoose
     const job = await Job.findById(jobId);
     if (!job || !job.embedding || job.embedding.length === 0) {
@@ -243,7 +397,7 @@ app.get('/jobs/:jobId/match', async (req, res) => {
     }
     // Extract job skills from multiple sources
     let jobSkills = [];
-    
+
     // Try to extract from enhanced description first
     if (job.enhancedDescription) {
       const skillPatterns = [
@@ -252,7 +406,7 @@ app.get('/jobs/:jobId/match', async (req, res) => {
         /technologies?[:\s]*([\w\s,.-]+)/i,
         /experience with[:\s]*([\w\s,.-]+)/i
       ];
-      
+
       for (const pattern of skillPatterns) {
         const match = job.enhancedDescription.match(pattern);
         if (match) {
@@ -266,43 +420,65 @@ app.get('/jobs/:jobId/match', async (req, res) => {
         }
       }
     }
-    
+
     // Fallback to original description if no skills found
     if (jobSkills.length === 0 && job.description) {
       const commonTechSkills = ['javascript', 'python', 'java', 'react', 'node', 'sql', 'aws', 'docker', 'git'];
-      jobSkills = commonTechSkills.filter(skill => 
+      jobSkills = commonTechSkills.filter(skill =>
         job.description.toLowerCase().includes(skill)
       );
     }
-    
+
     // Remove duplicates and clean up
     jobSkills = [...new Set(jobSkills)].filter(Boolean);
-    
+
     console.log('Extracted job skills:', jobSkills);
-    
+
     const matches = resumes.map(r => {
       // Check if resume has meaningful content
       const parsed = r.parsedResume || {};
-      const hasName = !!(parsed.name && parsed.name.trim());
+      // Try multiple name field possibilities
+      const possibleName = parsed.name || parsed.profile?.name || parsed.personalInfo?.name || parsed.header?.name;
+      const hasName = !!(possibleName && possibleName.trim());
       const hasSkills = !!(parsed.skills && (
         typeof parsed.skills === 'string' ? parsed.skills.trim() :
-        Array.isArray(parsed.skills) ? parsed.skills.length > 0 :
-        parsed.skills.featuredSkills?.length > 0 || parsed.skills.descriptions?.length > 0
+          Array.isArray(parsed.skills) ? parsed.skills.length > 0 :
+            parsed.skills.featuredSkills?.length > 0 || parsed.skills.descriptions?.length > 0
       ));
       const hasExperience = !!(parsed.experience && parsed.experience.trim());
       const hasSummary = !!(parsed.summary && parsed.summary.trim());
       const hasEducation = !!(parsed.education && parsed.education.trim());
+
+      // Enhanced content quality scoring (0-1)
+      const nameScore = calculateFieldQuality(possibleName, 'name');
+      const skillsScore = calculateFieldQuality(parsed.skills, 'skills');
+      const experienceScore = calculateFieldQuality(parsed.experience, 'experience');
+      const summaryScore = calculateFieldQuality(parsed.summary, 'summary');
+      const educationScore = calculateFieldQuality(parsed.education, 'education');
       
-      // Content completeness score (0-1)
-      const contentFields = [hasName, hasSkills, hasExperience, hasSummary, hasEducation];
-      const contentScore = contentFields.filter(Boolean).length / contentFields.length;
-      
-      // Skip resumes with no meaningful content
-      if (contentScore < 0.2) { // Less than 20% content
-        console.log('Skipping empty/incomplete resume:', parsed.name || 'Unnamed');
+      // Additional quality factors
+      const workExperienceScore = calculateWorkExperienceQuality(parsed.workExperiences);
+      const educationDetailScore = calculateEducationDetailQuality(parsed.educations);
+      const projectsScore = calculateFieldQuality(parsed.projects, 'projects');
+
+      // Weighted content score (different fields have different importance)
+      const contentScore = (
+        nameScore * 0.1 +           // 10% - Basic info
+        skillsScore * 0.3 +         // 30% - Very important
+        experienceScore * 0.2 +     // 20% - Important
+        summaryScore * 0.15 +       // 15% - Good to have
+        educationScore * 0.1 +      // 10% - Basic requirement
+        workExperienceScore * 0.1 + // 10% - Detailed work history
+        educationDetailScore * 0.03 + // 3% - Detailed education
+        projectsScore * 0.02        // 2% - Shows initiative
+      );
+
+      // Skip resumes with no meaningful content (lowered threshold)
+      if (contentScore < 0.1) { // Less than 10% content
+        console.log('Skipping empty/incomplete resume:', possibleName || 'Unnamed');
         return null;
       }
-      
+
       // Calculate embedding similarity
       let embeddingScore = 0;
       if (r.embedding && job.embedding && r.embedding.length === job.embedding.length) {
@@ -313,43 +489,65 @@ app.get('/jobs/:jobId/match', async (req, res) => {
             console.log('Skipping resume with zero embedding:', parsed.name || 'Unnamed');
             return null;
           }
-          
+
           embeddingScore = cosineSimilarity(job.embedding, r.embedding);
         } catch (error) {
           console.warn('Cosine similarity calculation failed:', error.message);
           embeddingScore = 0;
         }
       }
-      
-      // Extract resume skills
+
+      // Extract resume skills from multiple possible fields
       let resumeSkills = [];
-      if (r.parsedResume && r.parsedResume.skills) {
+      const skillSources = [
+        r.parsedResume?.skills,
+        r.parsedResume?.skills?.featuredSkills,
+        r.parsedResume?.skills?.descriptions,
+        r.parsedResume?.technicalSkills,
+        r.parsedResume?.technologies
+      ].filter(Boolean);
+
+      for (const skillSource of skillSources) {
         try {
-          if (typeof r.parsedResume.skills === 'string') {
-            resumeSkills = r.parsedResume.skills
-              .split(/[,\n\r\-•]/)
+          if (typeof skillSource === 'string') {
+            const extracted = skillSource
+              .split(/[,\n\r\-•|]/)
               .map(s => s.trim().toLowerCase())
               .filter(s => s.length > 1 && s.length < 30);
-          } else if (Array.isArray(r.parsedResume.skills)) {
-            resumeSkills = r.parsedResume.skills
+            resumeSkills.push(...extracted);
+          } else if (Array.isArray(skillSource)) {
+            const extracted = skillSource
+              .map(s => {
+                if (typeof s === 'object' && s.skill) {
+                  // Extract skill text and split by common delimiters
+                  return s.skill.split(/[,;:|]/).map(skill => skill.trim()).filter(Boolean);
+                }
+                return String(s);
+              })
+              .flat() // Flatten in case we got arrays from splitting
+              .map(s => s.trim().toLowerCase())
+              .filter(s => s.length > 1 && s.length < 50 && s !== '[object object]');
+            resumeSkills.push(...extracted);
+          } else if (typeof skillSource === 'object') {
+            // Handle nested skill objects
+            const extracted = Object.values(skillSource)
+              .flat()
               .map(s => String(s).trim().toLowerCase())
               .filter(s => s.length > 1 && s.length < 30);
-          } else {
-            resumeSkills = String(r.parsedResume.skills)
-              .split(/[,\n\r\-•]/)
-              .map(s => s.trim().toLowerCase())
-              .filter(s => s.length > 1 && s.length < 30);
+            resumeSkills.push(...extracted);
           }
         } catch (error) {
-          console.warn('Resume skill extraction failed:', error.message);
-          resumeSkills = [];
+          console.warn('Resume skill extraction failed for source:', error.message);
         }
       }
-      
+
+      // Remove duplicates and clean up
+      resumeSkills = [...new Set(resumeSkills)].filter(Boolean);
+
       // Calculate skill overlap with fuzzy matching
       let skillOverlap = 0;
       let matchingSkills = [];
-      
+
       if (jobSkills.length > 0 && resumeSkills.length > 0) {
         for (const jobSkill of jobSkills) {
           for (const resumeSkill of resumeSkills) {
@@ -358,26 +556,57 @@ app.get('/jobs/:jobId/match', async (req, res) => {
               skillOverlap++;
               matchingSkills.push(jobSkill);
             }
-            // Partial match (contains)
+            // Partial match (contains) - check both directions
             else if (jobSkill.includes(resumeSkill) || resumeSkill.includes(jobSkill)) {
               skillOverlap += 0.5;
               matchingSkills.push(`${jobSkill}~${resumeSkill}`);
             }
+            // Special case: check if job skill appears anywhere in resume skill text
+            else if (resumeSkill.includes(jobSkill)) {
+              skillOverlap += 0.8; // High score for finding the skill within text
+              matchingSkills.push(`${jobSkill} (found in: ${resumeSkill})`);
+            }
+            // Additional check: split resume skills by common separators and check each part
+            else {
+              const resumeSkillParts = resumeSkill.split(/[,;:|\/\s]+/).map(part => part.trim().toLowerCase()).filter(Boolean);
+              for (const part of resumeSkillParts) {
+                if (part === jobSkill || part.includes(jobSkill) || jobSkill.includes(part)) {
+                  skillOverlap += 0.9; // Very high score for exact match in parts
+                  matchingSkills.push(`${jobSkill} (matched: ${part})`);
+                  break; // Only count once per job skill
+                }
+              }
+            }
           }
         }
       }
-      
+
       // Calculate composite score with content quality weighting
       const normalizedSkillScore = jobSkills.length > 0 ? skillOverlap / jobSkills.length : 0;
-      
+
       // Weight the final score by content completeness and embedding quality
       const baseScore = (embeddingScore * 0.6) + (normalizedSkillScore * 0.3) + (contentScore * 0.1);
-      
-      // Apply minimum thresholds
-      if (baseScore < 0.1 || contentScore < 0.2) {
+
+      // Debug logging for scoring
+      const displayName = possibleName || 'Unnamed';
+      console.log(`--- Scoring Debug for ${displayName} ---`);
+      console.log('Raw parsed resume keys:', Object.keys(parsed));
+      console.log('Resume skills raw:', parsed.skills);
+      console.log('Resume skills processed:', resumeSkills);
+      console.log('Job skills:', jobSkills);
+      console.log('Embedding score:', embeddingScore.toFixed(4));
+      console.log('Skill overlap:', skillOverlap);
+      console.log('Normalized skill score:', normalizedSkillScore.toFixed(4));
+      console.log('Content score:', contentScore.toFixed(4));
+      console.log('Final base score:', baseScore.toFixed(4));
+      console.log('');
+
+      // Apply minimum thresholds (more lenient)
+      if (baseScore < 0.05 || contentScore < 0.1) {
+        console.log(`Filtering out ${possibleName || 'Unnamed'}: baseScore=${baseScore.toFixed(4)}, contentScore=${contentScore.toFixed(4)}`);
         return null;
       }
-      
+
       // Match explanation
       let explanation = [];
       if (r.parsedResume) {
@@ -385,7 +614,7 @@ app.get('/jobs/:jobId/match', async (req, res) => {
         if (r.parsedResume.experience) explanation.push('experience');
         if (r.parsedResume.summary) explanation.push('summary');
       }
-      
+
       return {
         score: baseScore,
         embeddingScore: embeddingScore,
@@ -406,7 +635,25 @@ app.get('/jobs/:jobId/match', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`Backend listening on port ${PORT}`);
+// Start server only after MongoDB connection is established
+async function startServer() {
+  const connected = await connectToMongoDB();
+
+  if (!connected) {
+    console.error('❌ Failed to connect to MongoDB. Server not started.');
+    console.log('💡 Try running: node test-connection.js to diagnose the issue');
+    process.exit(1);
+  }
+
+  const PORT = process.env.PORT || 4000;
+  app.listen(PORT, () => {
+    console.log(`🚀 Backend listening on port ${PORT}`);
+    console.log('✅ Server ready to accept requests');
+  });
+}
+
+// Start the server
+startServer().catch(error => {
+  console.error('❌ Failed to start server:', error);
+  process.exit(1);
 }); 

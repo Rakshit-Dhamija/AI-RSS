@@ -124,14 +124,54 @@ function LoginForm({ onLogin }: { onLogin: (role: string) => void }) {
           </button>
         </form>
         <div style={{ marginTop: 18, color: message === "Login successful!" ? "#4caf50" : "#e57373", fontWeight: 500, minHeight: 24, textAlign: "center" }}>{message}</div>
+
+        <div style={{
+          marginTop: 20,
+          textAlign: "center",
+          color: "#aaa",
+          fontSize: 14
+        }}>
+          Don't have an account?{" "}
+          <button
+            onClick={() => window.location.href = "/register"}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#0070f3",
+              cursor: "pointer",
+              textDecoration: "underline",
+              fontSize: 14
+            }}
+          >
+            Create Account
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
+// Helper functions for score colors
+function getScoreColor(score: number | undefined): string {
+  if (!score) return '#666';
+  if (score >= 0.8) return '#4caf50'; // Green - Excellent
+  if (score >= 0.6) return '#8bc34a'; // Light Green - Good
+  if (score >= 0.4) return '#ffc107'; // Yellow - Moderate
+  if (score >= 0.2) return '#ff9800'; // Orange - Poor
+  return '#f44336'; // Red - Very Poor
+}
+
+function getSkillMatchColor(skillCount: number | undefined): string {
+  if (!skillCount) return '#666';
+  if (skillCount >= 3) return '#4caf50'; // Green - Many skills
+  if (skillCount >= 2) return '#8bc34a'; // Light Green - Good skills
+  if (skillCount >= 1) return '#ffc107'; // Yellow - Some skills
+  return '#f44336'; // Red - No skills
+}
+
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [role, setRole] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
   const [parsedResume, setParsedResume] = useState<any>(null);
@@ -145,6 +185,7 @@ export default function Home() {
   const [matchesLoading, setMatchesLoading] = useState<{ [jobId: string]: boolean }>({});
   const [matchesError, setMatchesError] = useState<{ [jobId: string]: string | null }>({});
   const [expandedResumes, setExpandedResumes] = useState<{ [key: string]: boolean }>({});
+  const [sortBy, setSortBy] = useState<string>('overall');
 
   useEffect(() => {
     // Check for token and role in localStorage on mount
@@ -350,73 +391,162 @@ export default function Home() {
                 {matchesError[job._id] && <div style={{ color: "#e57373", marginTop: 8 }}>{matchesError[job._id]}</div>}
                 {matches[job._id] && (
                   <div style={{ marginTop: 16 }}>
-                    <strong style={{ fontSize: 18, color: '#fff' }}>Top Matches:</strong>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <strong style={{ fontSize: 18, color: '#fff' }}>Top Matches:</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 14, color: '#aaa' }}>Sort by:</span>
+                        <select
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value)}
+                          style={{
+                            background: '#333',
+                            color: '#fff',
+                            border: '1px solid #555',
+                            borderRadius: 4,
+                            padding: '4px 8px',
+                            fontSize: 12
+                          }}
+                        >
+                          <option value="overall">🎯 Best Overall Match</option>
+                          <option value="semantic">🧠 AI Job Fit</option>
+                          <option value="skills">⚡ Tech Skills Match</option>
+                          <option value="content">📋 Resume Quality</option>
+                        </select>
+                      </div>
+                    </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 8 }}>
                       {matches[job._id].length === 0 && <div style={{ color: "#aaa" }}>No matches found.</div>}
-                      {matches[job._id].map((match, i) => {
-                        const resume = match.resume?.parsedResume || {};
-                        const isTop = i === 0;
-                        const resumeKey = `${job._id}-${i}`;
-                        const expanded = expandedResumes[resumeKey] || false;
-                        
-                        const toggleExpanded = () => {
-                          setExpandedResumes(prev => ({
-                            ...prev,
-                            [resumeKey]: !prev[resumeKey]
-                          }));
-                        };
-                        
-                        return (
-                          <div key={i} style={{
-                            background: isTop ? "#1e2a3a" : "#181818",
-                            border: isTop ? "2px solid #0070f3" : "1px solid #333",
-                            borderRadius: 10,
-                            boxShadow: isTop ? "0 4px 16px #0070f344" : "0 2px 8px #0002",
-                            padding: 18,
-                            color: '#fff',
-                            position: 'relative',
-                          }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <div style={{ fontWeight: 700, fontSize: 17 }}>
-                                {resume.name || <em>Unnamed Candidate</em>}
-                                {isTop && <span style={{ marginLeft: 8, color: '#0070f3', fontWeight: 600, fontSize: 14 }}>(Best Match)</span>}
+                      {(() => {
+                        // Sort matches based on selected criteria
+                        const sortedMatches = [...matches[job._id]].sort((a, b) => {
+                          switch (sortBy) {
+                            case 'semantic':
+                              return (b.embeddingScore || 0) - (a.embeddingScore || 0);
+                            case 'skills':
+                              return (b.skillOverlap || 0) - (a.skillOverlap || 0);
+                            case 'content':
+                              return (b.contentScore || 0) - (a.contentScore || 0);
+                            case 'overall':
+                            default:
+                              return (b.score || 0) - (a.score || 0);
+                          }
+                        });
+
+                        return sortedMatches.map((match, i) => {
+                          const resume = match.resume?.parsedResume || {};
+                          const isTop = i === 0;
+                          const resumeKey = `${job._id}-${i}`;
+                          const expanded = expandedResumes[resumeKey] || false;
+
+                          const toggleExpanded = () => {
+                            setExpandedResumes(prev => ({
+                              ...prev,
+                              [resumeKey]: !prev[resumeKey]
+                            }));
+                          };
+
+                          return (
+                            <div key={i} style={{
+                              background: isTop ? "#1e2a3a" : "#181818",
+                              border: isTop ? "2px solid #0070f3" : "1px solid #333",
+                              borderRadius: 10,
+                              boxShadow: isTop ? "0 4px 16px #0070f344" : "0 2px 8px #0002",
+                              padding: 18,
+                              color: '#fff',
+                              position: 'relative',
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ fontWeight: 700, fontSize: 17 }}>
+                                  {resume.name || <em>Unnamed Candidate</em>}
+                                  {isTop && <span style={{ marginLeft: 8, color: '#0070f3', fontWeight: 600, fontSize: 14 }}>(Best Match)</span>}
+                                </div>
+                                <button
+                                  style={{ background: '#0070f3', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
+                                  onClick={() => alert('Shortlist feature coming soon!')}
+                                >
+                                  Shortlist
+                                </button>
                               </div>
+                              {/* Creative Score Display with Visual Indicators */}
+                              <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 14 }}>
+                                <div style={{ background: '#1a1a2e', padding: 8, borderRadius: 6, border: '1px solid #16213e' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                    <span>🎯</span>
+                                    <strong>Best Overall Match</strong>
+                                  </div>
+                                  <div style={{ fontSize: 18, fontWeight: 'bold', color: getScoreColor(match.score) }}>
+                                    {(match.score * 100).toFixed(1)}%
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#aaa' }}>Combined AI + Skills + Quality</div>
+                                </div>
+
+                                <div style={{ background: '#1a2e1a', padding: 8, borderRadius: 6, border: '1px solid #213e21' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                    <span>🧠</span>
+                                    <strong>AI Job Fit</strong>
+                                  </div>
+                                  <div style={{ fontSize: 18, fontWeight: 'bold', color: getScoreColor(match.embeddingScore) }}>
+                                    {match.embeddingScore ? (match.embeddingScore * 100).toFixed(1) + '%' : 'N/A'}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#aaa' }}>How well content matches role</div>
+                                </div>
+
+                                <div style={{ background: '#2e1a1a', padding: 8, borderRadius: 6, border: '1px solid #3e2121' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                    <span>⚡</span>
+                                    <strong>Tech Skills Match</strong>
+                                  </div>
+                                  <div style={{ fontSize: 18, fontWeight: 'bold', color: getSkillMatchColor(match.skillOverlap) }}>
+                                    {match.skillOverlap || 0} skills
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#aaa' }}>
+                                    {match.matchingSkills && match.matchingSkills.length > 0
+                                      ? match.matchingSkills.slice(0, 2).join(', ') + (match.matchingSkills.length > 2 ? '...' : '')
+                                      : 'No matching skills found'
+                                    }
+                                  </div>
+                                </div>
+
+                                <div style={{ background: '#1a1a2e', padding: 8, borderRadius: 6, border: '1px solid #21213e' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                    <span>📋</span>
+                                    <strong>Resume Quality</strong>
+                                  </div>
+                                  <div style={{ fontSize: 18, fontWeight: 'bold', color: getScoreColor(match.contentScore) }}>
+                                    {match.contentScore ? (match.contentScore * 100).toFixed(0) + '%' : 'N/A'}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#aaa' }}>Completeness & detail level</div>
+                                </div>
+                              </div>
+                              <div style={{ marginTop: 6, fontSize: 15 }}>
+                                <strong>Skills:</strong> {
+                                  resume.skills ? (
+                                    typeof resume.skills === 'string' ? resume.skills :
+                                      resume.skills.featuredSkills ?
+                                        resume.skills.featuredSkills.map((s: any) => s.skill || s).filter(Boolean).join(', ') :
+                                        resume.skills.descriptions ?
+                                          resume.skills.descriptions.join(', ') :
+                                          JSON.stringify(resume.skills)
+                                  ) : <em>—</em>
+                                }
+                              </div>
+                              <div style={{ marginTop: 6, fontSize: 15 }}><strong>Experience:</strong> {resume.experience || <em>—</em>}</div>
+                              {resume.email && <div style={{ marginTop: 6, fontSize: 15 }}><strong>Email:</strong> {resume.email}</div>}
                               <button
-                                style={{ background: '#0070f3', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
-                                onClick={() => alert('Shortlist feature coming soon!')}
+                                style={{ marginTop: 10, background: '#232323', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontWeight: 500, cursor: 'pointer', fontSize: 14 }}
+                                onClick={toggleExpanded}
                               >
-                                Shortlist
+                                {expanded ? 'Hide Full Resume' : 'View Full Resume'}
                               </button>
+                              {expanded && (
+                                <pre style={{ marginTop: 10, background: '#10151a', color: '#fff', borderRadius: 6, padding: 12, fontSize: 13, overflowX: 'auto' }}>
+                                  {JSON.stringify(match.resume, null, 2)}
+                                </pre>
+                              )}
                             </div>
-                            <div style={{ marginTop: 6, fontSize: 15 }}><strong>Score:</strong> {match.score.toFixed(3)}</div>
-                            <div style={{ marginTop: 6, fontSize: 15 }}>
-                              <strong>Skills:</strong> {
-                                resume.skills ? (
-                                  typeof resume.skills === 'string' ? resume.skills : 
-                                  resume.skills.featuredSkills ? 
-                                    resume.skills.featuredSkills.map((s: any) => s.skill || s).filter(Boolean).join(', ') :
-                                    resume.skills.descriptions ? 
-                                      resume.skills.descriptions.join(', ') :
-                                      JSON.stringify(resume.skills)
-                                ) : <em>—</em>
-                              }
-                            </div>
-                            <div style={{ marginTop: 6, fontSize: 15 }}><strong>Experience:</strong> {resume.experience || <em>—</em>}</div>
-                            {resume.email && <div style={{ marginTop: 6, fontSize: 15 }}><strong>Email:</strong> {resume.email}</div>}
-                            <button
-                              style={{ marginTop: 10, background: '#232323', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontWeight: 500, cursor: 'pointer', fontSize: 14 }}
-                              onClick={toggleExpanded}
-                            >
-                              {expanded ? 'Hide Full Resume' : 'View Full Resume'}
-                            </button>
-                            {expanded && (
-                              <pre style={{ marginTop: 10, background: '#10151a', color: '#fff', borderRadius: 6, padding: 12, fontSize: 13, overflowX: 'auto' }}>
-                                {JSON.stringify(match.resume, null, 2)}
-                              </pre>
-                            )}
-                          </div>
-                        );
-                      })}
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
                 )}
@@ -466,18 +596,18 @@ export default function Home() {
         margin: "1rem 0"
       }}>
         Choose PDF File
-      <input
+        <input
           id="file-upload"
-        type="file"
-        accept="application/pdf"
-        onChange={handleFileChange}
-        disabled={uploading}
+          type="file"
+          accept="application/pdf"
+          onChange={handleFileChange}
+          disabled={uploading}
           style={{ display: "none" }}
-            />
+        />
       </label>
       {uploading && <p>Uploading...</p>}
       {message && <p>{message}</p>}
       {parsedResume && <ResumeViewer resume={parsedResume} />}
-      </main>
+    </main>
   );
 }
