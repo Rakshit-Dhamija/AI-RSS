@@ -12,7 +12,7 @@ export default function Login() {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch('http://localhost:4000/login', {
+      const res = await fetch('https://ai-rss.onrender.com/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),

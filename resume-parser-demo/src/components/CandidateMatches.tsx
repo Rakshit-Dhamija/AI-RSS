@@ -94,7 +94,7 @@ export default function CandidateMatches({
       setAiSummary(null);
       setSummaryError(null);
       setSummaryLoading(true);
-      fetch('http://localhost:4000/ai-summary', {
+      fetch('https://ai-rss.onrender.com/ai-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resume: selectedCandidate.resume?.parsedResume })

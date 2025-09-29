@@ -91,7 +91,7 @@ import { getBulletPointsFromLines } from "./lib/bullet-points";
 ## **Summary of What To Do Next**
 
 1. **Update all import paths in your Next.js frontend to use relative paths.**
-2. **Change the upload URL in your frontend to point to your Node.js backend (`http://localhost:4000/upload`).**
+2. **Change the upload URL in your frontend to point to your Node.js backend (`https://localhost:3000`).**
 3. **Restart both servers and test.**
 
 ---

@@ -42,7 +42,7 @@ export default function Home() {
         setJobLoading(true);
         setJobError(null);
         try {
-          const res = await fetch("http://localhost:4000/jobs", {
+          const res = await fetch("https://ai-rss.onrender.com/jobs", {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (!res.ok) throw new Error("Failed to fetch jobs");
@@ -67,7 +67,7 @@ export default function Home() {
     const formData = new FormData();
     formData.append("resume", file);
     try {
-      const res = await fetch("http://localhost:4000/upload", {
+      const res = await fetch("https://ai-rss.onrender.com/upload", {
         method: "POST",
         body: formData,
       });
@@ -96,7 +96,7 @@ export default function Home() {
     setMatchesLoading(prev => ({ ...prev, [jobId]: true }));
     setMatchesError(prev => ({ ...prev, [jobId]: null }));
     try {
-      const res = await fetch(`http://localhost:4000/jobs/${jobId}/match`);
+      const res = await fetch(`https://ai-rss.onrender.com/jobs/${jobId}/match`);
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.error || 'Failed to fetch matches');
@@ -130,7 +130,7 @@ export default function Home() {
       setJobError(null);
       
       try {
-        const res = await fetch("http://localhost:4000/jobs", {
+        const res = await fetch("https://ai-rss.onrender.com/jobs", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -149,7 +149,7 @@ export default function Home() {
         setTimeout(() => setJobError(null), 3000);
         
         // Refresh jobs list
-        const jobsRes = await fetch("http://localhost:4000/jobs", {
+        const jobsRes = await fetch("https://ai-rss.onrender.com/jobs", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const jobsData = await jobsRes.json();
