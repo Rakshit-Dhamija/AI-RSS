@@ -42,7 +42,7 @@ export default function Home() {
         setJobLoading(true);
         setJobError(null);
         try {
-          const res = await fetch("https://ai-rss.onrender.com/jobs", {
+          const res = await fetch("http://localhost:4000/jobs", {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (!res.ok) throw new Error("Failed to fetch jobs");
@@ -64,22 +64,21 @@ export default function Home() {
     setUploading(true);
     setMessage("");
     setParsedResume(null);
-    const formData = new FormData();
-    formData.append("resume", file);
+    
     try {
-      const res = await fetch("https://ai-rss.onrender.com/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage("✅ Resume uploaded and parsed successfully!");
-        setParsedResume(data.parsedResume);
-      } else {
-        setMessage(`❌ ${data.error || "Failed to upload resume"}`);
-      }
+      // Parse PDF on client-side to avoid server-side issues
+      const { parseResumeFromPdf } = await import("./parse-resume-from-pdf");
+      const fileUrl = URL.createObjectURL(file);
+      const parsedResume = await parseResumeFromPdf(fileUrl);
+      
+      setMessage("✅ Resume parsed successfully!");
+      setParsedResume(parsedResume);
+      
+      // Clean up the object URL
+      URL.revokeObjectURL(fileUrl);
     } catch (err) {
-      setMessage("❌ Network error - please check if backend is running");
+      setMessage("❌ Failed to parse resume - please check the PDF format");
+      console.error("Parse error:", err);
     } finally {
       setUploading(false);
     }
@@ -96,7 +95,7 @@ export default function Home() {
     setMatchesLoading(prev => ({ ...prev, [jobId]: true }));
     setMatchesError(prev => ({ ...prev, [jobId]: null }));
     try {
-      const res = await fetch(`https://ai-rss.onrender.com/jobs/${jobId}/match`);
+      const res = await fetch(`http://localhost:4000/jobs/${jobId}/match`);
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.error || 'Failed to fetch matches');
@@ -130,7 +129,7 @@ export default function Home() {
       setJobError(null);
       
       try {
-        const res = await fetch("https://ai-rss.onrender.com/jobs", {
+        const res = await fetch("http://localhost:4000/jobs", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -149,7 +148,7 @@ export default function Home() {
         setTimeout(() => setJobError(null), 3000);
         
         // Refresh jobs list
-        const jobsRes = await fetch("https://ai-rss.onrender.com/jobs", {
+        const jobsRes = await fetch("http://localhost:4000/jobs", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const jobsData = await jobsRes.json();
